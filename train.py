@@ -1,22 +1,21 @@
-from argparse import ArgumentParser, BooleanOptionalAction
 import torch
 from torchvision.transforms import v2
-import os
+# import os
 # from utils.data import load_data_module
 # from utils.sam import *
 # from utils.eval import *
-from models.resnet import *
-import wandb
+# from models.resnet import *
+# import wandb
 import torch.optim as optim
 from tqdm import tqdm
 # from utils.paths import *
-import timm
+# import timm
 from transformers import ViTImageProcessor, ViTForImageClassification
 import time
-import torch
-import torchvision
+# import torchvision
 import torch.nn.functional as F
 from dataset import Cifar
+import torch.nn as nn
 
 
 class ResNetTrainer():
@@ -29,13 +28,14 @@ class ResNetTrainer():
 
         print("Device:", self.device)
 
-        model = model.to(self.device, dtype=torch.float)
+        model = model.to(self.device)
         self.model = model
 
         self.train_data = dataset.train_loader
         self.test_data = dataset.test_loader
 
         self.optimizer = optimizer
+        self.criterion = nn.CrossEntropyLoss()
 
     def train(self, epochs):
         loss_history = torch.zeros((5))
@@ -47,9 +47,9 @@ class ResNetTrainer():
             progress_bar = tqdm(self.train_data)
             for e, (x, y) in enumerate(progress_bar, 1):
                 x = x.to(self.device, dtype=torch.float)
-                y = y.to(self.device, dtype=torch.float)
+                y = y.to(self.device)
                 prediction = self.model(x)
-                loss = F.cross_entropy(prediction, y)
+                loss = self.criterion(prediction, y)
 
                 self.optimizer.zero_grad()
                 loss.backward()

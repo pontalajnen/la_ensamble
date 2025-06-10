@@ -11,7 +11,7 @@ class Cifar(torch.utils.data.Dataset):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
-        batch_size = 4
+        batch_size = 32
 
         train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
 
@@ -31,11 +31,6 @@ class Cifar(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         name = self.file_names[idx]
         sample = (read_image(f'./GTAV/noiseimages/{name}')/255., read_image(f'./GTAV/images/{name}')/255.)
-        return sample
-
-    def get_plottable(self, idx):
-        name = self.file_names[idx]
-        sample = read_image(f'./GTAV/noiseimages/{name}').permute(1,2,0), read_image(f'./GTAV/images/{name}').permute(1,2,0)
         return sample
 
     def unpickle(file):
