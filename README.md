@@ -19,3 +19,6 @@
 - Laplace on Batch
 - Cifar100
 
+## Questions For Erik
+
+- Hyperparametrar, hur ska vi gå tillväga, eller ska vi kopiera??

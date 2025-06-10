@@ -2,6 +2,9 @@ import torch
 import torchvision
 import argparse
 from argparse import ArgumentParser, BooleanOptionalAction
+from models.resnet import ResNet18
+from train import ResNetTrainer
+from dataset import Cifar
 
 
 def main():
@@ -43,17 +46,30 @@ def main():
 
     parser.add_argument("--label_smoothing", default=0.1, type=float, help="Use 0.0 for no label smoothing.")
 
-    # Set device
-    device = torch.device(
-        'cuda:0' if torch.cuda.is_available() else
-        'mps' if torch.backends.mps.is_available() else
-        'cpu'
-    )
-
-    print("Device:", device)
 
     args = parser.parse_args()
 
+    model = ResNet18()
+
+    lr = 0.1
+    # should scale with batch size, * bs/256
+    momentum = 0.9
+    weight_decay = 0.0001
+    batch_size = 64
+    epochs = 10
+
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
+    dataset = Cifar()
+
+    trainer = ResNetTrainer(
+        model=model,
+        batch_size=batch_size,
+        optimizer=optimizer,
+        dataset=dataset
+    )
+
+    trainer.train(epochs=epochs)
+    trainer.test()
 
 
 if __name__ == "__main__":
