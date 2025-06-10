@@ -17,4 +17,5 @@
 - Transformers (ViT-x)
 - BatchEnsambles
 - Laplace on Batch
+- Cifar100
 
