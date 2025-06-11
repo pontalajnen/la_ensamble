@@ -1,19 +1,18 @@
 import torch
-from torchvision.transforms import v2
+# from torchvision.transforms import v2
 # import os
 # from utils.data import load_data_module
 # from utils.sam import *
 # from utils.eval import *
 # from models.resnet import *
 # import wandb
-import torch.optim as optim
+# import torch.optim as optim
 from tqdm import tqdm
 # from utils.paths import *
 # import timm
-from transformers import ViTImageProcessor, ViTForImageClassification
+# from transformers import ViTImageProcessor, ViTForImageClassification
 import time
 # import torchvision
-import torch.nn.functional as F
 from dataset import Cifar
 import torch.nn as nn
 

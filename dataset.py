@@ -1,4 +1,3 @@
-import pickle
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -11,7 +10,7 @@ class Cifar(torch.utils.data.Dataset):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
         ])
 
-        batch_size = 32
+        batch_size = 128
 
         train_set = torchvision.datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
 
@@ -26,14 +25,10 @@ class Cifar(torch.utils.data.Dataset):
             'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
 
     def __len__(self):
-        return len(self.file_names)
+        return len(self.train_loader.dataset) + len(self.test_loader.dataset)
 
     def __getitem__(self, idx):
-        name = self.file_names[idx]
-        sample = (read_image(f'./GTAV/noiseimages/{name}')/255., read_image(f'./GTAV/images/{name}')/255.)
-        return sample
-
-    def unpickle(file):
-        with open(file, 'rb') as fo:
-            dict = pickle.load(fo, encoding='bytes')
-        return dict
+        if idx < len(self.train_loader.dataset):
+            return self.train_loader.dataset[idx]
+        else:
+            return self.test_loader.dataset[idx - len(self.train_loader.dataset)]

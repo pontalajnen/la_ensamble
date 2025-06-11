@@ -1,4 +1,4 @@
-# Improving Laplace Approximation With Ensamble Methods...
+# Improving Laplace Approximation With Ensemble Methods
 
 ## Timeline
 
@@ -6,7 +6,6 @@
 - SAM with ResNet18 on Cifar10
 - Ensamble x 5 (naive)
 - Read the paper
-
 
 ## TODO
 
