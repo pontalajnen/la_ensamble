@@ -13,7 +13,7 @@ def main(args):
     momentum = 0.9
     weight_decay = 0.0001
     batch_size = 64
-    epochs = 5
+    epochs = 1
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
     dataset = Cifar()

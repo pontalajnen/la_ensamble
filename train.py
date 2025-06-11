@@ -65,22 +65,22 @@ class ResNetTrainer():
 
     @torch.inference_mode()
     def test(self):
-        total_accuracy = 0
-        start = time.time()
+        correct = 0
+        total = 0
         progress_bar = tqdm(self.test_data)
-        total_steps = 0
+        # since we're not training, we don't need to calculate the gradients for our outputs
+        start = time.time()
+        with torch.no_grad():
+            for e, (x, y) in enumerate(progress_bar, 1):
+                x = x.to(self.device)
+                y = y.to(self.device)
+                images, labels = x, y
+                # calculate outputs by running images through the network
+                outputs = self.model(images)
+                # the class with the highest energy is what we choose as prediction
+                _, predicted = torch.max(outputs, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
 
-        for e, (x, y) in enumerate(progress_bar, 1):
-            x = x.to(self.device, dtype=torch.float)
-            y = y.to(self.device, dtype=torch.float)
-            pred = self.model(x)
-
-            # This is the accuracy of the model
-            accuracy = (pred == y).item()
-            total_accuracy += accuracy
-            total_steps = e
-
-            progress_bar.set_postfix(Accuracy=total_accuracy/total_steps)
-
-        print('Noise Accuracy: ' + str((total_accuracy/(total_steps-1))))
-        print('Total Eval Time: ', time.time() - start)
+        print(f'Accuracy : {100 * correct // total} %')
+        print(f"Total Testing Time: {time.time() - start} seconds")
