@@ -1,0 +1,39 @@
+program: train_nlp.py
+method: random
+name: rho_MRPC_RoBERTa_train
+
+metric:
+  name: val_loss
+  goal: minimize
+
+parameters:
+  model:
+    value: ROBERTA
+  NLP_model:
+    value: distilbert/distilroberta-base
+  base_optimizer:
+    value: AdamW
+  learning_rate:
+    value: 2e-5
+  weight_decay:
+    value: 0.01
+  epochs:
+    value: 3
+  dataset:
+    value: MRPC
+  batch_size:
+    value: 16
+  seed:
+    value: 0
+  SAM:
+    value: "true"
+  adaptive:
+    value: "false"
+  lr_scheduler:
+    value: "linear"
+  num_warmup_steps:
+    value: 0.1
+  rho:
+    distribution: uniform
+    min: 0.01
+    max: 0.05

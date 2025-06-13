@@ -1,0 +1,28 @@
+program: train.py
+method: random
+name: lr_tuning_CIFAR100
+
+metric:
+  name: val_loss
+  goal: minimize
+
+parameters:
+  model:
+    value: ViT
+  base_optimizer:
+    value: AdamW
+  learning_rate:
+    distribution: log_uniform_values
+    min: 1e-5
+    max: 5e-4
+  epochs:
+    value: 10
+  dataset:
+    value: CIFAR100
+  batch_size:
+    value: 32
+  val_split:
+    value: 0.1
+  seed:
+    value: 0
+

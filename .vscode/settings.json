@@ -1,6 +1,32 @@
 {
     "cSpell.words": [
+        "aece",
+        "Asdl",
+        "AURC",
+        "auroc",
         "cifar",
-        "pycache"
+        "Curvlinops",
+        "eigenthings",
+        "jobsh",
+        "lanczos",
+        "lastjobs",
+        "marglik",
+        "maxpool",
+        "MNLI",
+        "MRPC",
+        "multiclass",
+        "normorig",
+        "noshort",
+        "noshortcut",
+        "nscquota",
+        "openimage",
+        "preds",
+        "projinfo",
+        "pycache",
+        "snli",
+        "stanfordnlp",
+        "SVHN",
+        "xaxis",
+        "yaxis"
     ]
 }

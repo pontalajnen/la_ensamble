@@ -1,0 +1,32 @@
+program: train_sam.py
+method: random
+name: rho_tuning_CIFAR10
+
+metric:
+  name: val_loss
+  goal: minimize
+
+parameters:
+  model:
+    value: ViT
+  base_optimizer:
+    value: AdamW
+  learning_rate:
+    value: 3.208637017474099e-05
+  weight_decay:
+    value: 0.01
+  epochs:
+    value: 10
+  dataset:
+    value: CIFAR10
+  batch_size:
+    value: 32
+  val_split:
+    value: 0.1
+  seed:
+    value: 0
+  rho:
+    distribution: uniform
+    min: 0.01
+    max: 0.15
+

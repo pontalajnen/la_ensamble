@@ -1,0 +1,39 @@
+program: train_nlp.py
+method: grid
+name: MRPC_BERT_train
+
+metric:
+  name: val_loss
+  goal: minimize
+
+parameters:
+  model:
+    value: BERT
+  NLP_model:
+    value: bert-base-cased
+  base_optimizer:
+    value: AdamW
+  learning_rate:
+    value: 2e-5
+  weight_decay:
+    value: 0.01
+  epochs:
+    value: 3
+  dataset:
+    value: MRPC
+  batch_size:
+    value: 16
+  seed:
+    values: [0, 1, 2, 3, 4]
+  SAM:
+    value: "false"
+  adaptive:
+    value: "false"
+  lr_scheduler:
+    value: "linear"
+  num_warmup_steps:
+    value: 0.1
+  rho:
+    value: 0.040905588371971585
+
+
