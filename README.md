@@ -1,5 +1,14 @@
 # Improving Laplace Approximation With Ensemble Methods
 
+## Running the Training
+
+```bash
+python3 run.py
+
+``
+
+## Running the Testing
+
 ## Timeline
 
 - Access to Berselius

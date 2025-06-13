@@ -55,12 +55,13 @@ class ResNetTrainer():
                 self.optimizer.step()
 
                 n = min(e, 5)
-                # .item() takes the single tensor value and makes it a python native element
                 loss_history[e % 5] = loss.item()
                 lh.append(loss.item())
-                # this line will print the rolling loss average on the progress bar
                 progress_bar.set_postfix(Loss=(loss_history.sum()/n).item())
+            torch.save(self.model.state_dict(), f"saved_models/model_epoch_{epoch+1}.pth")
         print('Total Training Time: ', time.time() - start)
+
+        torch.save(self.model.state_dict(), "saved_models/model_final.pth")
         return lh
 
     @torch.inference_mode()
@@ -68,17 +69,18 @@ class ResNetTrainer():
         correct = 0
         total = 0
         progress_bar = tqdm(self.test_data)
-        # since we're not training, we don't need to calculate the gradients for our outputs
+        self.model.eval()
+
         start = time.time()
         with torch.no_grad():
             for e, (x, y) in enumerate(progress_bar, 1):
                 x = x.to(self.device)
                 y = y.to(self.device)
                 images, labels = x, y
-                # calculate outputs by running images through the network
+
                 outputs = self.model(images)
-                # the class with the highest energy is what we choose as prediction
                 _, predicted = torch.max(outputs, 1)
+
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
 

@@ -13,7 +13,7 @@ def main(args):
     momentum = 0.9
     weight_decay = 0.0001
     batch_size = 64
-    epochs = 1
+    epochs = 10
 
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum, weight_decay=weight_decay)
     dataset = Cifar()
@@ -25,8 +25,11 @@ def main(args):
         dataset=dataset
     )
 
-    trainer.train(epochs=epochs)
-    trainer.test()
+    if args.test:
+        trainer.model.load_state_dict(torch.load(args.model_path))
+        trainer.test()
+    else:
+        trainer.train(epochs=epochs)
 
 
 if __name__ == "__main__":
@@ -75,6 +78,9 @@ if __name__ == "__main__":
     parser.add_argument("--eta", default=0.1, type=float, help="Eta parameter for ASAM.")
 
     parser.add_argument("--label_smoothing", default=0.1, type=float, help="Use 0.0 for no label smoothing.")
+
+    parser.add_argument("--test", action=BooleanOptionalAction, default=False)
+    parser.add_argument("--model_path", type=str, default="saved_models/model_final.pth")
 
     args = parser.parse_args()
     main(args)
