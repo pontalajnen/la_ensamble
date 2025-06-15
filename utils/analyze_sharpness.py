@@ -3,16 +3,9 @@ import torch
 import json
 # import numpy as np
 from argparse import ArgumentParser, BooleanOptionalAction
-from utils.eval import *
 from utils.eval import load_model
 from utils.data import load_hf_dataset, load_vision_dataset
-from utils.paths import *
 from utils.paths import ROOT, LOCAL_STORAGE, DATA_DIR, RESULT_DIR
-# import timm
-# from transformers import ViTImageProcessor, ViTForImageClassification
-# from torchvision.transforms import v2
-# from transformers import AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
-# from datasets import load_dataset
 from torch.backends.cuda import sdp_kernel
 from hessian_eigenthings import compute_hessian_eigenthings
 
@@ -43,9 +36,9 @@ def main():
     parser.add_argument("--eval_ood", action=BooleanOptionalAction, default=True,
                         help="Whether to evaluate on OOD data.")
     parser.add_argument("--eval_shift", action=BooleanOptionalAction, default=True,
-                        help="Whether to evaluate on shifted data.") 
+                        help="Whether to evaluate on shifted data.")
     parser.add_argument("--eval_train", action=BooleanOptionalAction, default=True,
-                        help="Whether to evaluate on training data (gives nll).") 
+                        help="Whether to evaluate on training data (gives nll).")
     parser.add_argument("--shift_severity", type=int, default=1,
                         help="The severity of the shift to evaluate on (1-5).")
     parser.add_argument("--ood_ds", type=str, default="openimage-o",

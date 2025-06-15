@@ -1,14 +1,13 @@
-from argparse import ArgumentParser, BooleanOptionalAction, Action
+from argparse import ArgumentParser, BooleanOptionalAction, Action, ArgumentTypeError
 import torch
-from torch.utils.data import DataLoader
-from torchvision.transforms import v2
+import torch.nn as nn
 import os
-from utils.data import load_data_module, load_hf_dataset, load_vision_dataset
-from utils.sam import *
-from utils.eval import *
-from models.resnet import *
-from utils.paths import *
-from utils.paths import LOCAL_STORAGE, DATA_DIR
+from utils.data import load_hf_dataset, load_vision_dataset
+from utils.sam import SAM
+from utils.sam import enable_running_stats, disable_running_stats
+from utils.eval import evaluate_model_lang
+from models.resnet import torch_resnet18
+from utils.paths import LOCAL_STORAGE, DATA_DIR, MODEL_PATH_LOCAL
 import wandb
 import torch.optim as optim
 from tqdm import tqdm
@@ -17,6 +16,8 @@ import timm
 from transformers import AutoModelForSequenceClassification  # , AutoTokenizer,  DataCollatorWithPadding
 from transformers import get_scheduler
 # from datasets import load_dataset
+from helpers import common_arguments
+import numpy as np
 
 
 def train(args):
@@ -41,7 +42,7 @@ def train(args):
 
     print("Loading dataset: ", args.dataset)
     if args.dataset in ("CIFAR10", "CIFAR100", "MNIST", "ImageNet"):
-        nlp, dm, num_classes, train_loader, val_loader, _ , _ , _ = load_vision_dataset(
+        nlp, dm, num_classes, train_loader, val_loader, _, _, _ = load_vision_dataset(
             dataset=args.dataset,
             model_type=args.model,
             ViT_model=args.ViT_model,
@@ -58,7 +59,7 @@ def train(args):
             normalize_pretrained_dataset=args.normalize_pretrained_dataset
         )
     elif args.dataset in ("MNLI", "RTE", "MRPC"):
-        nlp, train_loader, val_loader, _ , _ , _ , num_classes = load_hf_dataset(
+        nlp, train_loader, val_loader, _, _, _, num_classes = load_hf_dataset(
             NLP_model=args.NLP_model,
             dataset_name=args.dataset,
             eval_ood=False,
@@ -107,6 +108,7 @@ def train(args):
         normalize_pretrained_dataset = wandb.config["normalize_pretrained_dataset"]
         if isinstance(normalize_pretrained_dataset, str):
             normalize_pretrained_dataset = str2bool(normalize_pretrained_dataset)
+
         ViT_model = wandb.config["ViT_model"]
         NLP_model = wandb.config["NLP_model"]
         learning_rate = wandb.config["learning_rate"]
@@ -125,7 +127,6 @@ def train(args):
         save_dir = MODEL_PATH_LOCAL + f"{dataset}_{model_type}_{'' if use_SAM == True else 'no'}_SAM/"
         os.makedirs(save_dir, exist_ok=True)
 
-        # PATH = f"{save_dir}_{base_optimizer}_rho{rho}_adaptive{adaptive}_seed{seed}_normorig{normalize_pretrained_dataset}_runID{run.id}"
         artifact = wandb.Artifact("model_checkpoints", type="model")
         print("Successfully initialized W&B run!")
 
@@ -145,7 +146,7 @@ def train(args):
             model = AutoModelForSequenceClassification.from_pretrained(NLP_model, num_labels=num_classes)
             model.to(device)
         else:
-            raise Exception("Oops, requested model does not exist! Model has to be one of 'ResNet18', 'ViT', 'BERT', 'ROBERTA'")
+            raise Exception("Requested model doesn't exist! Has to be one of 'ResNet18', 'ViT', 'BERT', 'ROBERTA'")
 
         # Optimizer
         if base_optimizer == "SGD":
@@ -153,7 +154,7 @@ def train(args):
         elif base_optimizer == "AdamW":
             base_opt = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         elif base_optimizer == "Adam":
-            base_opt= optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+            base_opt = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
         else:
             raise Exception("Oops, requested optimizer does not exist! Optimizer has to be one of 'SGD'")
         print("Optimizer ready!")
@@ -177,7 +178,8 @@ def train(args):
                 'lr': learning_rate,
                 'weight_decay': weight_decay,
             }
-            if type(base_opt) == optim.SGD:
+
+            if isinstance(base_opt, optim.SGD):
                 optimizer_args['momentum'] = momentum
 
             # Create the SAM optimizer
@@ -219,10 +221,14 @@ def train(args):
         criterion = nn.CrossEntropyLoss()
         best_val_loss = float("inf")
         best_epoch = 0
-        best_checkpoint_path = os.path.join(save_dir, f"model_{model_type}_seed{seed}_adaptive{adaptive}_SAM{use_SAM}_best.pth")
-        print("Successfully initialized model, optimizer and loss function!")
-        print("Start training loop!")
-        print("Printing all values: ", model_type, NLP_model, base_optimizer, learning_rate, weight_decay, epochs, dataset, batch_size, seed, seeds_per_job, use_SAM, adaptive, lr_scheduler, num_warmup_steps, rho)
+        best_checkpoint_path = os.path.join(
+            save_dir,
+            f"model_{model_type}_seed{seed}_adaptive{adaptive}_SAM{use_SAM}_best.pth"
+        )
+        print("Initialized model, optimizer and loss function!")
+        print("----- Start training loop -----")
+        print("Printing all values: ", model_type, NLP_model, base_optimizer, learning_rate, weight_decay,
+              epochs, dataset, batch_size, seed, seeds_per_job, use_SAM, adaptive, lr_scheduler, num_warmup_steps, rho)
         for epoch in tqdm(range(epochs), desc="Epochs"):
             # Train as usual
             model.train()
@@ -238,7 +244,7 @@ def train(args):
 
                 if use_SAM:
                     if batch_idx == 1:
-                        print("-------------------------Using SAM---------------------------------")
+                        print("---------------- Using SAM ------------------")
                     # ---- SAM Step 1 ----
                     enable_running_stats(model)
                     y_pred, loss = forward_and_loss(model, x, y, criterion, nlp)
@@ -261,7 +267,8 @@ def train(args):
 
             # Validation loop
             val_accuracy, val_loss = evaluate_model_lang(model, val_loader, device, criterion, nlp)
-            wandb.log({"epoch": epoch, "val_accuracy": val_accuracy,  "val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
+            wandb.log({"epoch": epoch, "val_accuracy": val_accuracy,
+                       "val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
 
             # Save and track the best model
             if val_loss < best_val_loss:
@@ -281,14 +288,16 @@ def train(args):
 
         # **Rename the best checkpoint with metadata**
         final_checkpoint_path = os.path.join(
-            save_dir, 
-            f"seed={seed}-epoch={best_epoch:02d}-val_loss={best_val_loss:.4f}-model={model_type}-optimizer={base_optimizer}-rho={rho}-adaptive={adaptive}-model_name={model_name}.pth"
+            save_dir,
+            (f"seed={seed}-epoch={best_epoch:02d}-val_loss={best_val_loss:.4f}-model={model_type}-"
+             f"optimizer={base_optimizer}-rho={rho}-adaptive={adaptive}-model_name={model_name}.pth")
         )
         os.rename(best_checkpoint_path, final_checkpoint_path)  # Rename the best model file
 
         last_epoch_checkpoint_path = os.path.join(
-            save_dir, 
-            f"seed={seed}-epoch={epochs}-val_loss={val_loss:.4f}-model={model_type}-optimizer={base_optimizer}-rho={rho}-adaptive={adaptive}-model_name={model_name}.pth"
+            save_dir,
+            (f"seed={seed}-epoch={epochs}-val_loss={val_loss:.4f}-model={model_type}-"
+             f"optimizer={base_optimizer}-rho={rho}-adaptive={adaptive}-model_name={model_name}.pth")
         )
         # Store model after last epoch
         if store_last_ckpt:
@@ -296,7 +305,7 @@ def train(args):
 
         artifact.add_file(final_checkpoint_path)
         wandb.log_artifact(artifact)
-        wandb.finish()
+        run.finish()
 
 
 def forward_and_loss_short(model, x, y, criterion, nlp):
@@ -336,7 +345,7 @@ class BooleanAction(Action):
         elif values.lower() in ('no', 'false', 'f', '0'):
             setattr(namespace, self.dest, False)
         else:
-            raise argparse.ArgumentTypeError(f"Unsupported boolean value: {values}")
+            raise ArgumentTypeError(f"Unsupported boolean value: {values}")
 
 
 def str2bool(val):
@@ -362,8 +371,6 @@ def main():
                         help="True if you want to use basic augmentations (horizontal flip, random crop with padding).")
     parser.add_argument("--val_split", type=float, default=0.0,
                         help="Split the training set into train and validation set.")
-    parser.add_argument("--num_workers", type=int, default=2,
-                        help="Number of workers for the dataloader.")
     parser.add_argument("--model", type=str, default="ResNet18",
                         help="Supported models are ResNet18, ViT, BERT, ROBERTA, DistilGPT2")
     parser.add_argument("--model_name", type=str, default="Unknown")
@@ -407,6 +414,8 @@ def main():
                         help="Rho parameter for SAM.")
     parser.add_argument("--eta", default=0.1, type=float,
                         help="Eta parameter for ASAM.")
+
+    parser = common_arguments(parser)
 
     args = parser.parse_args()
 

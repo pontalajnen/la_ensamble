@@ -4,22 +4,20 @@ import json
 import numpy as np
 import torch
 from argparse import ArgumentParser, BooleanOptionalAction
-from utils.eval import *
-from utils.eval import load_model, eval_train_data, plot_multi_model_reliability, eval_ood_data
-from utils.data import load_data_module, TransformWrapper, load_hf_dataset, load_vision_dataset
+from utils.eval import load_model, eval_train_data, plot_multi_model_reliability, eval_ood_data, eval_data
+from utils.data import load_hf_dataset, load_vision_dataset
 from laplace import Laplace
-from utils.paths import *
 from utils.paths import ROOT, LOCAL_STORAGE, DATA_DIR, RESULT_DIR
-from laplace.curvature.asdfghjkl import AsdfghjklHessian
+# from laplace.curvature.asdfghjkl import AsdfghjklHessian
 from laplace.curvature.asdl import AsdlGGN, AsdlEF
 from laplace.curvature.backpack import BackPackGGN, BackPackEF
-from laplace.curvature.curvature import CurvatureInterface
+# from laplace.curvature.curvature import CurvatureInterface
 from laplace.curvature.curvlinops import CurvlinopsEF, CurvlinopsGGN
-import timm
-from transformers import ViTImageProcessor, ViTForImageClassification
-from torchvision.transforms import v2
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
-from datasets import load_dataset
+# import timm
+# from transformers import ViTImageProcessor, ViTForImageClassification
+# from torchvision.transforms import v2
+# from transformers import AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
+# from datasets import load_dataset
 from helpers import common_arguments
 
 
@@ -121,11 +119,11 @@ def main():
 
     os.makedirs(RESULT_PATH, exist_ok=True)
 
-    print(RESULT_PATH+args.save_file_name) 
+    print(RESULT_PATH+args.save_file_name)
     if os.path.isfile(RESULT_PATH+args.save_file_name):
         f = open(RESULT_PATH+args.save_file_name, 'r')
         results = json.load(f)
-        # raise Exception("File already exists, make sure you haven't already evaluated this model! Please delete the file or use a different name.")
+        # raise Exception("File already exists, make sure you haven't already evaluated this model!")
     else:
         results = {}
 
@@ -253,7 +251,7 @@ def main():
                 model = Laplace(model, "classification", hessian_structure=args.hessian_approx,
                                 subset_of_weights=args.subset_of_weights, backend=backend)
             model.fit(train_loader, progress_bar=True)
-            if not args.optimize_prior_precision == None:
+            if args.optimize_prior_precision is not None:
                 model.optimize_prior_precision(pred_type=pred_type, method=args.optimize_prior_precision,
                                                link_approx=args.approx_link, val_loader=val_loader)
 
@@ -335,7 +333,7 @@ def main():
                     # If the value is a dictionary (for nested metrics like "SHIFT Intensity")
                     if isinstance(value, dict):
                         for sub_metric, sub_value in value.items():
-                            full_metric = f"{full_metric}_{sub_metric}"
+                            full_metric = f"{full_metric}_{sub_metric}"  # noqa
                             metrics_data.setdefault(full_metric, []).append(sub_value)
                     elif isinstance(value, list):
                         # If the metric is a list (like "OOD AUROC"), compute the average of the list
@@ -361,7 +359,7 @@ def main():
         # --------------------------------------------------------------------
         if args.rel_plot:
             PLOT_PATH = RESULT_PATH + "/rel_diag_probs/"
-            os.makedirs(PLOT_PATH, exist_ok=True) 
+            os.makedirs(PLOT_PATH, exist_ok=True)
             print(len(model_results_id))
             print(len(model_results_shift))
             torch.save(model_results_id, PLOT_PATH + args.save_file_name[:-4]+"_"+str(num_models)+"_ID_values.pt")

@@ -1,11 +1,11 @@
-from torchvision import datasets, transforms
-import torch.utils.data as data
+# from torchvision import datasets, transforms
+# import torch.utils.data as data
 import torch
-from torch.utils.data import Dataset, DataLoader, TensorDataset
-import os
+from torch.utils.data import DataLoader
+# import os
 from torch_uncertainty.datamodules import CIFAR10DataModule, ImageNetDataModule, CIFAR100DataModule, MNISTDataModule
-from utils.paths import *
-from transformers import AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
+from transformers import ViTImageProcessor
+from transformers import AutoTokenizer, DataCollatorWithPadding
 from datasets import load_dataset
 from torchvision.transforms import v2
 from sklearn.model_selection import train_test_split

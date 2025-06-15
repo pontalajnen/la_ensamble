@@ -1,6 +1,8 @@
 {
     "cSpell.words": [
         "aece",
+        "aiics",
+        "asdfghjkl",
         "Asdl",
         "AURC",
         "auroc",
@@ -30,6 +32,8 @@
         "stanfordnlp",
         "SVHN",
         "torchaudio",
+        "torchrun",
+        "wandb",
         "xaxis",
         "yaxis"
     ]
