@@ -79,7 +79,6 @@ ssh <username>@berzelius.nsc.liu.se   # Auto assignment
 
 ## Timeline
 
-- Access to Berzelius
 - SAM with ResNet18 on Cifar10
 - Ensemble x 5 (naive)
 - Read the paper
@@ -118,3 +117,30 @@ To tweak job priorities, extend time limits and reserve nodes: see
 [Job Priorities and Time Limits](https://www.nsc.liu.se/support/batch-jobs/boost-tools/)
 
 (Run "nsc-mute-login" to not show this information)
+
+## Setting up Berzelius Environment
+
+Create a mamba environment with the correct python and torch version ([documentation](https://www.nsc.liu.se/support/systems/berzelius-software/berzelius-conda-mamba/)):
+
+```bash
+module load Miniforge3/24.7.1-2-hpc1-bdist
+mamba create --name pytorch-2.5.1-python-3.10 python=3.10
+mamba activate pytorch-2.5.1-python-3.10
+CONDA_OVERRIDE_CUDA=11.8 mamba install pytorch==2.5.1=cuda* torchvision=*=cuda* torchaudio=*=cuda*
+```
+
+For convenience, add a command to activate the environment in your .bashrc file, as it has a complicated name:
+
+```bash
+vim ~/.bashrc
+
+# Add the following to the bottom of the file (G, o, ctrl+shift+v, esc, :wq)
+```bash
+alias <name of choice>="mamba activate pytorch-2.5.1-python-3.10"
+```
+
+## Running With Multiple GPUs
+
+```bash
+torchrun --nproc_per_node=2 train.py --distributed [other args]
+```

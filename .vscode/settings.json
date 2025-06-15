@@ -4,7 +4,9 @@
         "Asdl",
         "AURC",
         "auroc",
+        "bdist",
         "cifar",
+        "cuda",
         "Curvlinops",
         "eigenthings",
         "jobsh",
@@ -12,6 +14,7 @@
         "lastjobs",
         "marglik",
         "maxpool",
+        "Miniforge",
         "MNLI",
         "MRPC",
         "multiclass",
@@ -26,6 +29,7 @@
         "snli",
         "stanfordnlp",
         "SVHN",
+        "torchaudio",
         "xaxis",
         "yaxis"
     ]

@@ -20,6 +20,7 @@ from transformers import ViTImageProcessor, ViTForImageClassification
 from torchvision.transforms import v2
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, DataCollatorWithPadding
 from datasets import load_dataset
+from helpers import common_arguments
 
 
 def main():
@@ -89,6 +90,8 @@ def main():
                         help="Whether to evaluate models trained on CIFAR10 on CIFAR-10-H")
     parser.add_argument('--rel_plot', action=BooleanOptionalAction, default=False,
                         help="Whether to reliability diagrams (both shift and id)")
+
+    parser = common_arguments(parser)
     args = parser.parse_args()
 
     print("Starting evaluation!")
