@@ -185,3 +185,22 @@ torchrun --nproc_per_node=2 train.py --distributed [other args]
 - Test_Resnet18_Cifar10_SGD_SAM.sh
 - test_resnet18_cifar10_sgd.sbatch
 - Test_Resnet18_Cifar10_SGD.sh
+
+python train.py \
+  --model resnet20 \
+  --dataset cifar10 \
+  --val_split 0.1 \
+  --base_optimizer SGLD \
+  --learning_rate 0.01 \
+  --epochs 200 \
+  --burn_in_epochs 100 \
+  --sgld_sample_interval 2 \
+  --num_sgld_samples 20 \
+  --sgld_noise_factor 1.0
+
+python evaluate.py \
+  --model_path_file sgld_samples.txt \
+  --model_type resnet20 \
+  --dataset cifar10 \
+  --sgld_ensemble \
+  --save_file_name results_sgld.json

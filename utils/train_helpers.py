@@ -9,6 +9,7 @@ from transformers import ViTImageProcessor  # , ViTForImageClassification
 from torchvision.transforms import v2
 # from sam import SAM
 from utils.sam import SAM
+from utils.sgld import SGLD
 from models.resnet20_frn import ResNet20_FRN
 from models.resnet20_frn_packed import ResNet20_FRN_packed
 
@@ -98,15 +99,23 @@ def init_optimizer(args, model):
                                    weight_decay=args.weight_decay, momentum=args.momentum)
     elif args.base_optimizer == "AdamW":
         base_optimizer = optim.AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    elif args.base_optimizer == "SGLD":
+        base_optimizer = SGLD(model.parameters(), lr=args.learning_rate,
+                              weight_decay=args.weight_decay,
+                              noise_factor=args.sgld_noise_factor)
     else:
-        raise Exception("Requested optimizer does not exist! Optimizer has to be one of 'SGD', 'AdamW'")
+        raise Exception("Requested optimizer does not exist! Optimizer has to be one of 'SGD', 'AdamW', 'SGLD'")
 
     # Determine the base optimizer and SAM optimizer setup
-    if args.SAM:
+    if args.base_optimizer == "SGLD":
+        print("[optimizer]: using SGLD")
+        opt = base_optimizer
+        if args.lr_scheduler == "cosine":
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
+    elif args.SAM:
         print("[optimizer]: using SAM")
         if args.adaptive:
             print("[optimizer]: using adaptive SAM")
-        # Set up arguments for both SAM and the base optimizer
         optimizer_args = {
             'params': model.parameters(),
             'base_optimizer': type(base_optimizer),
@@ -118,14 +127,11 @@ def init_optimizer(args, model):
         if isinstance(base_optimizer, optim.SGD):
             optimizer_args['momentum'] = args.momentum
 
-        # Create the SAM optimizer
         opt = SAM(**optimizer_args)
 
-        # Create the learning rate scheduler for SAM
         if args.lr_scheduler == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt.base_optimizer, args.epochs)
     else:
-        # Use the base optimizer without SAM
         opt = base_optimizer
         if args.lr_scheduler == "cosine":
             scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)

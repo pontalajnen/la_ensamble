@@ -1,8 +1,5 @@
 #!/bin/bash
-torchrun \
-    --nproc_per_node=1 \
-    train.py \
-    --distributed \
+python3 train.py \
     --model resnet20 \
     --dataset cifar10 \
     --val_split 0.1 \

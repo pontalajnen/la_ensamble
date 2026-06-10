@@ -19,21 +19,7 @@ import timm
 from models.bert import BERT
 from models.hf import HF
 import plotly.graph_objects as go
-from laplace.curvature.asdl import AsdlGGN, AsdlEF
-from laplace.curvature.backpack import BackPackGGN, BackPackEF
-from laplace.curvature.curvlinops import CurvlinopsEF, CurvlinopsGGN
 from tqdm import tqdm
-
-
-BACKENDS = {
-    "BackpackGGN": BackPackGGN,
-    "BackpackEF": BackPackEF,
-    "AsdlGGN": AsdlGGN,
-    "AsdlEF": AsdlEF,
-    "CurvlinopsGGN": CurvlinopsGGN,
-    "CurvlinopsEF": CurvlinopsEF,
-    None: CurvlinopsGGN
-}
 
 
 def load_model(args, path, device, num_classes):
@@ -146,7 +132,7 @@ def brier(y_pred, y_true):
         return metrics.mean_squared_error(y_pred, one_hot(y_true, y_pred.shape[-1]))
 
 
-def eval_train_data(model, dataloader, device, laplace, link, mc_samples, pred_type):
+def eval_train_data(model, dataloader, device):
     for batch in tqdm(dataloader, desc="[train data]"):
         if isinstance(batch, list):
             x = batch[0].to(device)
@@ -154,17 +140,13 @@ def eval_train_data(model, dataloader, device, laplace, link, mc_samples, pred_t
         else:
             x, y = batch, batch['labels'].to(device)
 
-        if isinstance(model, nn.Module):
-            probs = (torch.softmax(model(x), dim=-1))
-        else:
-            probs = (model(x, link_approx=link, n_samples=mc_samples, pred_type=pred_type))
+        probs = torch.softmax(model(x), dim=-1)
     nll = -dists.Categorical(probs).log_prob(y).mean()
     return nll.item()
 
 
-def eval_data(model, dataloader, device, num_classes, laplace=False, link=None, nll=False,
-              mc_samples=10, pred_type="glm", model_name=None, num_models=0, rel_plot=None, data_type=""):
-    # This function is called by both shift and ID evaluation
+def eval_data(model, dataloader, device, num_classes, nll=False,
+              model_name=None, num_models=0, rel_plot=None, data_type=""):
     accuracy = Accuracy(task="multiclass", num_classes=num_classes).to(device)
     f1_score = F1Score(task="multiclass", num_classes=num_classes, average="macro").to(device)
     ece_metric = CalibrationError("multiclass", num_classes=num_classes, num_bins=15, norm='l1')
@@ -185,10 +167,7 @@ def eval_data(model, dataloader, device, num_classes, laplace=False, link=None, 
             else:
                 x, y = batch, batch['labels'].to(device)
 
-            if isinstance(model, nn.Module):
-                probs = (torch.softmax(model(x), dim=-1))
-            else:
-                probs = (model(x, link_approx=link, n_samples=mc_samples, pred_type=pred_type))
+            probs = torch.softmax(model(x), dim=-1)
             ece_metric.update(probs, y)
             mce_metric.update(probs, y)
             aece_metric.update(probs, y)
@@ -223,8 +202,7 @@ def eval_data(model, dataloader, device, num_classes, laplace=False, link=None, 
     return ece, mce, aece, acc, nll, brier_score, f1, y_ood_logits, y_ood, y_predictions, y_targets
 
 
-def eval_ood_data(model, ood_dataloader, device, num_classes, y_ood_logits,
-                  OOD_labels, laplace, link, mc_samples, pred_type="glm"):
+def eval_ood_data(model, ood_dataloader, device, num_classes, y_ood_logits, OOD_labels):
     accuracy = Accuracy(task="multiclass", num_classes=num_classes).to(device)
 
     with torch.no_grad():
@@ -237,10 +215,7 @@ def eval_ood_data(model, ood_dataloader, device, num_classes, y_ood_logits,
                 batch = {k: v.to(device) for k, v in batch.items() if isinstance(v, torch.Tensor)}
                 x = batch
                 labels = batch['labels'].to(device)
-            if laplace:
-                probs = (model(x, link_approx=link, n_samples=mc_samples, pred_type=pred_type))
-            else:
-                probs = (torch.softmax(model(x), dim=-1))
+            probs = torch.softmax(model(x), dim=-1)
             y_ood_logits.append(probs.detach().to(device))
             OOD_labels.append(torch.zeros(len(labels), device=device))  # label OOD data with 0
             accuracy.update(probs, labels)

@@ -13,7 +13,7 @@ from torch.utils.data.distributed import DistributedSampler
 from utils.train_helpers import init_model, init_transformer, init_optimizer
 from utils.arguments import train_args
 from utils.helpers import torch_device
-# from pathlib import Path
+from utils.sgld import SGLD
 
 
 def model_path(args, save_dir, epoch, val_loss, model_name):
@@ -32,7 +32,6 @@ def save_model(model, path, args):
 def init_wandb(args, model_name):
     wandb.login()
     project = f"LA_SAM_{args.dataset}_{args.model}_SAM{args.SAM}_adaptive{args.adaptive}"
-    # Initialize W&B run and log hyperparameters
     run = wandb.init(project=project, name=model_name, config={
         "base_optimizer": args.base_optimizer,
         "rho": args.rho,
@@ -47,7 +46,10 @@ def init_wandb(args, model_name):
         "momentum": args.momentum,
         "epochs": args.epochs,
         "dataset": args.dataset,
-        "model": args.model
+        "model": args.model,
+        "sgld_noise_factor": args.sgld_noise_factor,
+        "burn_in_epochs": args.burn_in_epochs,
+        "sgld_sample_interval": args.sgld_sample_interval,
     })
 
     artifact = wandb.Artifact("model_checkpoints", type="model")
@@ -88,6 +90,7 @@ def init_dataloaders(dm, args):
     else:
         train_loader = dm.train_dataloader()
         val_loader = dm.val_dataloader()
+        train_sampler = None
 
     return train_loader, val_loader, train_sampler
 
@@ -134,7 +137,7 @@ def train(args):
     os.makedirs(save_dir, exist_ok=True)
 
     model = init_model(args, device, num_classes)
-    opt, scheduler = init_optimizer(args, model)
+    optimizer, scheduler = init_optimizer(args, model)
 
     criterion = nn.CrossEntropyLoss()
     best_val_loss = float("inf")
@@ -146,10 +149,18 @@ def train(args):
     else:
         num_estimators = 1
 
+    using_sgld = isinstance(optimizer, SGLD)
+    burn_in = args.burn_in_epochs if args.burn_in_epochs is not None else args.epochs // 2
+    sgld_samples = []
+    sgld_sample_paths_file = os.path.join(save_dir, f"sgld_samples_{model_name}_seed{args.seed}.txt")
+
     print("[training loop]: starting")
     for epoch in tqdm(range(args.epochs), desc="Epochs"):
-        train_sampler.set_epoch(epoch) if args.distributed else None
+        if args.distributed and train_sampler is not None:
+            train_sampler.set_epoch(epoch)
         model.train()
+
+        in_sampling_phase = using_sgld and epoch >= burn_in
 
         for x, y in train_loader:
             x, y = x.to(device), y.to(device)
@@ -158,17 +169,35 @@ def train(args):
                 enable_running_stats(model)
                 loss = sum([criterion(pred, y) for pred in model(x)]) if args.ensemble else criterion(model(x), y)
                 loss.mean().backward()
-                opt.first_step(zero_grad=True)
+                optimizer.first_step(zero_grad=True)
 
                 disable_running_stats(model)
                 loss = sum([criterion(pred, y) for pred in model(x)]) if args.ensemble else criterion(model(x), y)
                 loss.mean().backward()
-                opt.second_step(zero_grad=True)
+                optimizer.second_step(zero_grad=True)
+            elif using_sgld:
+                loss = sum([criterion(pred, y) for pred in model(x)]) if args.ensemble else criterion(model(x), y)
+                loss.mean().backward() if args.ensemble else loss.backward()
+                optimizer.step(add_noise=in_sampling_phase)
+                optimizer.zero_grad()
             else:
                 loss = sum([criterion(pred, y) for pred in model(x)]) if args.ensemble else criterion(model(x), y)
                 loss.backward()
-                opt.step()
-                opt.zero_grad()
+                optimizer.step()
+                optimizer.zero_grad()
+
+        # Collect SGLD posterior sample
+        if (in_sampling_phase
+                and (epoch - burn_in) % args.sgld_sample_interval == 0
+                and len(sgld_samples) < args.num_sgld_samples):
+            sample_path = os.path.join(
+                save_dir, f"sgld_sample_{len(sgld_samples):03d}_epoch{epoch:03d}_seed{args.seed}.pth"
+            )
+            save_model(model, sample_path, args)
+            sgld_samples.append(sample_path)
+            print(f"[SGLD]: saved sample {len(sgld_samples)} → {sample_path}")
+            with open(sgld_sample_paths_file, "w") as f:
+                f.write("\n".join(sgld_samples))
 
         # Validation loop
         val_accuracy, val_loss = evaluate_model(model, val_loader, device, criterion)
@@ -181,10 +210,12 @@ def train(args):
             val_accuracy /= dist.get_world_size()
             val_loss /= dist.get_world_size()
 
-        wandb.log({
+        log_dict = {
             "epoch": epoch, "val_accuracy": val_accuracy,
-            "val_loss": val_loss, "lr": scheduler.get_last_lr()[0]
-        })
+            "val_loss": val_loss, "lr": scheduler.get_last_lr()[0],
+            "sgld_samples_collected": len(sgld_samples),
+        }
+        wandb.log(log_dict)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -195,15 +226,18 @@ def train(args):
 
     print("[training loop]: finished")
 
-    final_checkpoint_path = model_path(args, save_dir, best_epoch, best_val_loss, model_name)
-    os.rename(best_checkpoint_path, final_checkpoint_path)
-    last_epoch_checkpoint_path = model_path(args, save_dir, args.epochs, val_loss, model_name)
+    if using_sgld:
+        print(f"[SGLD]: collected {len(sgld_samples)} posterior samples → {sgld_sample_paths_file}")
+    else:
+        final_checkpoint_path = model_path(args, save_dir, best_epoch, best_val_loss, model_name)
+        os.rename(best_checkpoint_path, final_checkpoint_path)
+        last_epoch_checkpoint_path = model_path(args, save_dir, args.epochs, val_loss, model_name)
+        save_model(model, last_epoch_checkpoint_path, args)
+        print(f"[saving model]: {last_epoch_checkpoint_path}")
 
-    save_model(model, last_epoch_checkpoint_path, args)
-    print(f"[saving model]: {last_epoch_checkpoint_path}")
+        artifact.add_file(final_checkpoint_path)
+        wandb.log_artifact(artifact)
 
-    artifact.add_file(final_checkpoint_path)
-    wandb.log_artifact(artifact)
     run.finish()
 
 

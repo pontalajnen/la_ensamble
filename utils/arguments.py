@@ -42,25 +42,10 @@ def eval_args():
     parser.add_argument("--normalize_pretrained_dataset", action=BooleanOptionalAction, default=False,
                         help="Finetune the dataset using the normalization values of the pretrained dataset (VIT)")
 
-    parser.add_argument("--laplace", action=BooleanOptionalAction, default=False, type=bool,
-                        help="Whether to use Laplace approximation.")
-    parser.add_argument("--approx_link", default="mc", type=str, choices=["mc", "probit", "bridge", "bridge_norm"])
-
-    parser.add_argument("--hessian_approx", default="full", type=str,
-                        choices=["full", "diag", "kron"])
-    parser.add_argument("--subset_of_weights", default="last_layer", type=str,
-                        choices=["last_layer", "all", "subnetwork"])
+    parser.add_argument("--sgld_ensemble", action=BooleanOptionalAction, default=False,
+                        help="Treat all model paths as SGLD samples and evaluate as one ensemble.")
 
     parser.add_argument("--plot", action=BooleanOptionalAction, default=False)
-    parser.add_argument('--optimize_prior_precision', default=None, choices=['marglik', 'gridsearch'])
-    parser.add_argument('--backend', default=None,
-                        choices=['CurvlinopsGGN', 'CurvlinopsEF', 'AsdlGGN', 'AsdlEF', 'BackpackGGN', 'BackpackEF'],
-                        help='The backend used for Hessian approximations')
-    parser.add_argument('--mc_samples', default=10, type=int)
-    parser.add_argument('--num_data', default=1000, type=int,
-                        help='The number of data points for Subset-of-Data (SOD) approximate GP inference.')
-    parser.add_argument('--pred_type', default="nn", type=str,  # TODO: nn important
-                        choices=["nn", "glm"])
 
     parser.add_argument('--rel_plot', action=BooleanOptionalAction, default=False,
                         help="Whether to reliability diagrams (both shift and id)")
@@ -127,6 +112,16 @@ def train_args():
     # Ensemble arguments
     parser.add_argument("--ensemble", action=BooleanOptionalAction, default=False)
     parser.add_argument("--num_ensemble_models", type=int, default=4)
+
+    # SGLD arguments (used when --base_optimizer SGLD)
+    parser.add_argument("--sgld_noise_factor", default=1.0, type=float,
+                        help="Scales the Langevin noise: std = sqrt(2 * lr * noise_factor).")
+    parser.add_argument("--burn_in_epochs", default=None, type=int,
+                        help="Epochs before collecting posterior samples (default: half of --epochs).")
+    parser.add_argument("--sgld_sample_interval", default=1, type=int,
+                        help="Collect one sample every N epochs after burn-in.")
+    parser.add_argument("--num_sgld_samples", default=20, type=int,
+                        help="Maximum number of SGLD posterior samples to save.")
 
     args = parser.parse_args()
     return args

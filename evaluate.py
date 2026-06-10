@@ -11,21 +11,17 @@ from utils.eval import (
     plot_multi_model_reliability,
     eval_ood_data,
     eval_data,
-    BACKENDS
 )
 from utils.data import load_hf_dataset, load_vision_dataset
-from laplace import Laplace
 from utils.paths import ROOT, LOCAL_STORAGE, DATA_DIR, RESULT_DIR
-# from laplace.curvature.asdfghjkl import AsdfghjklHessian
-# from laplace.curvature.curvature import CurvatureInterface
 from utils.arguments import eval_args
 from pathlib import Path
 from utils.helpers import torch_device
-from torch.nn.utils import parameters_to_vector
-from models.resnet20_frn_packed import LaplaceEnsemble
+from models.sgld_ensemble import SGLDEnsemble
 
 
 def estimator_indices(model):
+    from torch.nn.utils import parameters_to_vector
     num_estimators = model.num_estimators
     all_params = parameters_to_vector(model.parameters())
     total_params = all_params.numel()
@@ -37,7 +33,6 @@ def estimator_indices(model):
 
     last_layer_start = total_params - last_layer_params
 
-    # Get indices for each estimator
     estimator_indices_list = []
     for est_idx in range(num_estimators):
         est_start = last_layer_start + (est_idx * params_per_est)
@@ -47,45 +42,82 @@ def estimator_indices(model):
     return estimator_indices_list
 
 
-def laplace_fit(model, feature_reduction, train_loader, val_loader, args, subnetwork_indices):
-    print(f"[laplace]: hessian approx: {args.hessian_approx}, subset: {args.subset_of_weights}")
-    backend = BACKENDS[args.backend]
+def eval_sgld_ensemble(args, device, data_path, result_path):
+    """Evaluate all model paths as a single SGLD posterior ensemble."""
+    model_paths = open(ROOT + "/eval_path_files/" + args.model_path_file, "r").read().splitlines()
+    model_paths = [p.strip() for p in model_paths if p.strip()]
 
-    if args.subset_of_weights not in ["last_layer", "subnetwork"] or not args.hessian_approx == "diag":
-        print(f"[num_params]: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-        for _, module in model.named_modules():
-            if isinstance(module, (FRN, TLU)) or isinstance(module, torch.nn.BatchNorm2d):
-                for param in module.parameters():
-                    # continue
-                    param.requires_grad = False
-        print(f"[num_params]: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
-
-    pred_type = args.pred_type
-    if args.hessian_approx == "gp":  # TODO: Sample for every model
-        print("[laplace]: gp approximation")
-        model = Laplace(model, "classification", hessian_structure=args.hessian_approx,
-                        subset_of_weights=args.subset_of_weights, independent_outputs=True,
-                        n_subset=args.num_data, backend=backend)
-        print("Consider reducing batch size or GP inference!")
-        pred_type = "gp"
-    if feature_reduction is not None:
-        print("[laplace]: feature reduction")
-        model = Laplace(model, "classification", hessian_structure=args.hessian_approx,
-                        subset_of_weights=args.subset_of_weights, backend=backend,
-                        feature_reduction=feature_reduction)
+    if args.dataset in ("cifar10", "cifar100", "mnist", "imagenet"):
+        _, dm, num_classes, train_loader, val_loader, test_loader, shift_loader, ood_loader = load_vision_dataset(
+            args=args, data_path=data_path
+        )
+    elif args.dataset in ("MNLI", "RTE", "MRPC"):
+        _, train_loader, val_loader, test_loader, shift_loader, ood_loader, num_classes = load_hf_dataset(
+            NLP_model=args.NLP_model,
+            dataset_name=args.dataset,
+            eval_ood=args.eval_ood,
+            eval_shift=args.eval_shift,
+            batch_size=args.batch_size
+        )
     else:
-        print("[laplace]: normal fitting")
-        model = Laplace(model, "classification", hessian_structure=args.hessian_approx,
-                        subset_of_weights=args.subset_of_weights, backend=backend,
-                        subnetwork_indices=subnetwork_indices)
+        raise Exception("Requested dataset does not exist!")
 
-    print("[laplace]: fitting")
-    model.fit(train_loader, progress_bar=True)
+    def model_factory():
+        _, m = load_model(args, path=model_paths[0], device=device, num_classes=num_classes)
+        return m
 
-    if args.optimize_prior_precision is not None:
-        model.optimize_prior_precision(pred_type=pred_type, method=args.optimize_prior_precision,
-                                       link_approx=args.approx_link, val_loader=val_loader, progress_bar=True)
-    return model, pred_type
+    print(f"[SGLD ensemble]: loading {len(model_paths)} samples")
+    models = []
+    for path in model_paths:
+        _, m = load_model(args, path=path, device=device, num_classes=num_classes)
+        models.append(m)
+
+    ensemble = SGLDEnsemble(models).to(device)
+    ensemble.eval()
+
+    ensemble_name = f"sgld_ensemble_{len(model_paths)}samples"
+    results = {ensemble_name: {}}
+
+    if args.eval_train:
+        nll_value = eval_train_data(ensemble, train_loader, device=device)
+        results[ensemble_name]['Train nll'] = nll_value
+
+    ece, mce, aece, acc, nll_value, brier_score, f1, y_ood_logits, y_ood, y_pred_id, y_target_id = eval_data(
+        ensemble, test_loader, device=device, num_classes=num_classes, nll=True,
+        model_name=args.save_file_name, num_models=1, data_type="test data"
+    )
+    results[ensemble_name]['clean_accuracy'] = acc.to("cpu").numpy().tolist()
+    results[ensemble_name]['f1'] = f1.to("cpu").numpy().tolist()
+    results[ensemble_name]['ECE'] = ece.to("cpu").numpy().tolist() * 100
+    results[ensemble_name]['MCE'] = mce.to("cpu").numpy().tolist() * 100
+    results[ensemble_name]['aECE'] = aece.to("cpu").numpy().tolist() * 100
+    results[ensemble_name]['nll'] = nll_value
+    results[ensemble_name]['brier'] = brier_score
+
+    if args.eval_shift and shift_loader is not None:
+        ece, mce, aece, acc, nll_value, brier_score, f1, _, _, _, _ = eval_data(
+            ensemble, shift_loader, device=device, num_classes=num_classes,
+            model_name=args.save_file_name, num_models=1, data_type="shift data"
+        )
+        results[ensemble_name]['SHIFT ECE'] = ece.to("cpu").numpy().tolist() * 100
+        results[ensemble_name]['SHIFT MCE'] = mce.to("cpu").numpy().tolist() * 100
+        results[ensemble_name]['SHIFT aECE'] = aece.to("cpu").numpy().tolist() * 100
+        results[ensemble_name]['SHIFT ACCURACY'] = acc.to("cpu").numpy().tolist()
+        results[ensemble_name]['SHIFT f1'] = f1.to("cpu").numpy().tolist()
+
+    if args.eval_ood and ood_loader is not None:
+        auroc_calc, fpr95_ood, ood_acc = eval_ood_data(
+            ensemble, ood_loader, device=device, num_classes=num_classes,
+            y_ood_logits=y_ood_logits, OOD_labels=y_ood,
+        )
+        results[ensemble_name]['OOD AUROC'] = auroc_calc
+        results[ensemble_name]['OOD FPR95'] = fpr95_ood
+        results[ensemble_name]['OOD Accuracy'] = ood_acc.to("cpu").numpy().tolist()
+
+    with open(result_path / args.save_file_name, 'w') as fp:
+        json.dump(results, fp, indent=4)
+
+    print(f"[SGLD ensemble]: done → {result_path / args.save_file_name}")
 
 
 def eval(args):
@@ -125,7 +157,6 @@ def eval(args):
 
     num_models = 0
 
-    # prepare reliability diagram plot
     model_results_id = []
     model_results_shift = []
 
@@ -155,45 +186,17 @@ def eval(args):
         model = model.to(device)
         model.eval()
 
-        pred_type = args.pred_type
-        if args.laplace:
-            subnetwork_indices = estimator_indices(model) if args.subset_of_weights == "subnetwork" else [None]
-            # subnetwork_indices = torch.cat(subnetwork_indices)
-            models = []
-            for index, subnetwork_indice in enumerate(subnetwork_indices):
-                temp_model = deepcopy(model)
-                temp_model.ensemble = index
+        rel_plot = None
 
-                print(len(subnetwork_indice))
-                temp_model, pred_type = laplace_fit(
-                    temp_model, feature_reduction, train_loader, val_loader, args, subnetwork_indice
-                )
-                print(f"[ensemble index]: {temp_model.model.ensemble}")
-                models.append(temp_model)
-
-            model = LaplaceEnsemble(models)
-            if None in subnetwork_indices:
-                raise NotImplementedError("[non ensemble]: yet to implement normal models")
-                laplace_fit(
-                    temp_model, feature_reduction, train_loader, val_loader, args
-                )
-
-        # --------------------------------------------------------------------
-        # Start Evaluation
-        # --------------------------------------------------------------------
         if not train_done and args.eval_train:
-            nll_value = eval_train_data(model, train_loader, laplace=args.laplace, device=device, link=args.approx_link,
-                                        mc_samples=args.mc_samples, pred_type=pred_type)
+            nll_value = eval_train_data(model, train_loader, device=device)
             results[model_name]['Train nll'] = nll_value
 
         if not in_done:
             if args.rel_plot is True:
                 rel_plot = "ID"
-            else:
-                rel_plot = None
             ece, mce, aece, acc, nll_value, brier_score, f1, y_ood_logits, y_ood, y_pred_id, y_target_id = eval_data(
-                model, test_loader, device=device, num_classes=num_classes, laplace=args.laplace,
-                link=args.approx_link, nll=True, mc_samples=args.mc_samples, pred_type=pred_type,
+                model, test_loader, device=device, num_classes=num_classes, nll=True,
                 model_name=args.save_file_name, num_models=num_models, rel_plot=rel_plot, data_type="test data")
             results[model_name]['clean_accuracy'] = acc.to("cpu").numpy().tolist()
             results[model_name]['f1'] = f1.to("cpu").numpy().tolist()
@@ -208,11 +211,9 @@ def eval(args):
         if not shift_done and args.eval_shift and shift_loader is not None:
             if rel_plot == "ID":
                 rel_plot = "SHIFT"
-            else:
-                rel_plot = None
             ece, mce, aece, acc, nll_value, brier_score, f1, _, _, y_pred_shift, y_target_shift = eval_data(
-                model, shift_loader, device=device, num_classes=num_classes, laplace=args.laplace,
-                link=args.approx_link, mc_samples=args.mc_samples, pred_type=pred_type, model_name=args.save_file_name,
+                model, shift_loader, device=device, num_classes=num_classes,
+                model_name=args.save_file_name,
                 num_models=num_models, rel_plot=rel_plot, data_type="shift data")
             results[model_name]['SHIFT ECE'] = ece.to("cpu").numpy().tolist() * 100
             results[model_name]['SHIFT MCE'] = mce.to("cpu").numpy().tolist() * 100
@@ -226,8 +227,6 @@ def eval(args):
             auroc_calc, fpr95_ood, ood_acc = eval_ood_data(
                 model, ood_loader, device=device, num_classes=num_classes,
                 y_ood_logits=y_ood_logits, OOD_labels=y_ood,
-                laplace=args.laplace, link=args.approx_link,
-                mc_samples=args.mc_samples, pred_type=pred_type
             )
             results[model_name]['OOD AUROC'] = auroc_calc
             results[model_name]['OOD FPR95'] = fpr95_ood
@@ -241,9 +240,7 @@ def eval(args):
 
     print("[eval]: all models done")
     print(f"[saving]: filename {args.save_file_name}")
-    # --------------------------------------------------------------------
-    # Calculate average over evaluated models and store it in JSON file
-    # --------------------------------------------------------------------
+
     if num_models > 1:
         output_file = args.save_file_name.replace('.', '_summary.')
         model_results = open(result_path / args.save_file_name, 'r')
@@ -252,21 +249,17 @@ def eval(args):
         for line_data in model_results.read().splitlines():
             data = json.loads(line_data)
 
-            # Loop over each entry in the JSON structure
             for key, metrics in data.items():
                 for metric, value in metrics.items():
-                    # If the value is a dictionary (for nested metrics like "SHIFT Intensity")
                     if isinstance(value, dict):
                         for sub_metric, sub_value in value.items():
                             full_metric = f"{full_metric}_{sub_metric}"  # noqa
                             metrics_data.setdefault(full_metric, []).append(sub_value)
                     elif isinstance(value, list):
-                        # If the metric is a list (like "OOD AUROC"), compute the average of the list
                         metrics_data.setdefault(metric, []).append(np.mean(value))
                     else:
                         metrics_data.setdefault(metric, []).append(value)
 
-        # Compute mean and standard deviation for each metric
         metrics_summary = {}
         for metric, values in metrics_data.items():
             metrics_summary[metric] = {
@@ -279,9 +272,6 @@ def eval(args):
 
         print("Metrics summary saved to ", {result_path / output_file})
 
-        # --------------------------------------------------------------------
-        # Plot Reliability Diagram
-        # --------------------------------------------------------------------
         if args.rel_plot:
             PLOT_PATH = result_path / "/rel_diag_probs/"
             os.makedirs(PLOT_PATH, exist_ok=True)
@@ -315,6 +305,8 @@ def main():
     args = eval_args()
 
     result_path = Path(ROOT) / RESULT_DIR
+    os.makedirs(result_path, exist_ok=True)
+
     save_file = args.save_file_name.split(".")[0]
     results_dir = [results.name.split("_savefile")[0] for results in result_path.iterdir()]
     results_dir = [res.split(".")[0] for res in results_dir]
@@ -322,7 +314,12 @@ def main():
         print(f"[main]: {args.save_file_name} already exists, skipping...")
         return
 
-    eval(args)
+    data_path = Path(LOCAL_STORAGE) / DATA_DIR
+
+    if args.sgld_ensemble:
+        eval_sgld_ensemble(args, torch_device(), data_path, result_path)
+    else:
+        eval(args)
 
 
 if __name__ == "__main__":
