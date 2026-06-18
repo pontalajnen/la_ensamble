@@ -8,7 +8,6 @@ from utils.sam import enable_running_stats, disable_running_stats
 from utils.eval import evaluate_model_lang
 from models.resnet import torch_resnet18
 from utils.paths import LOCAL_STORAGE, DATA_DIR, MODEL_PATH_LOCAL
-import wandb
 import torch.optim as optim
 from tqdm import tqdm
 import timm
@@ -28,9 +27,6 @@ def train(args):
     )
     print("Device:", device)
     print("-------------------SAM IS ", args.SAM, "-----------------------")
-
-    # AVOID WANDB TIMEOUT
-    os.environ['WANDB_INIT_TIMEOUT'] = '800'
 
     # Set path to datasets
     DATA_PATH = LOCAL_STORAGE + DATA_DIR
@@ -70,14 +66,7 @@ def train(args):
     print("Loading done!")
     print("Successfully loaded the dataset!")
 
-    # --------------------------------------------------------------------
-    # WandB setup
-    # --------------------------------------------------------------------
-
-    wandb.login()
-
     for i in range(args.seeds_per_job):
-        # set seed for reproducibility
         seed = args.seed + i
         torch_seed = torch.Generator()
         torch_seed.manual_seed(seed)
@@ -88,37 +77,18 @@ def train(args):
         project = f"LA_SAM_{args.dataset}_{args.model}_SAM{args.SAM}_adaptive{args.adaptive}"
         model_name = args.model+"_"+args.dataset+"_seed"+str(seed)+"_"+args.base_optimizer
         # Initialize W&B run and log hyperparameters
-        run = wandb.init(project=project, name=model_name, config=args)
-        # wandb.config["seed"] = seed
-        wandb.config.update({"seed": seed}, allow_val_change=True)
+        dataset = args.dataset
+        model_type = args.model
 
-        model_type = wandb.config["model"]
-        dataset = wandb.config["dataset"]
-        base_optimizer = wandb.config["base_optimizer"]
-        use_SAM = wandb.config["SAM"]
-        adaptive = wandb.config["adaptive"]
         print("SAM, adaptive", type(use_SAM), use_SAM, type(adaptive), adaptive)
         if isinstance(use_SAM, str):
             use_SAM = str2bool(use_SAM)
         if isinstance(adaptive, str):
             adaptive = str2bool(adaptive)
         print("SAM, adaptive", type(use_SAM), use_SAM, type(adaptive), adaptive)
-        rho = wandb.config["rho"]
-        normalize_pretrained_dataset = wandb.config["normalize_pretrained_dataset"]
         if isinstance(normalize_pretrained_dataset, str):
             normalize_pretrained_dataset = str2bool(normalize_pretrained_dataset)
 
-        ViT_model = wandb.config["ViT_model"]
-        NLP_model = wandb.config["NLP_model"]
-        learning_rate = wandb.config["learning_rate"]
-        weight_decay = wandb.config["weight_decay"]
-        momentum = wandb.config["momentum"]
-        lr_scheduler = wandb.config["lr_scheduler"]
-        epochs = wandb.config["epochs"]
-        num_warmup_steps = wandb.config["num_warmup_steps"]
-        batch_size = wandb.config["batch_size"]
-        seeds_per_job = wandb.config["seeds_per_job"]
-        store_last_ckpt = wandb.config["store_last_ckpt"]
         if isinstance(store_last_ckpt, str):
             store_last_ckpt = str2bool(store_last_ckpt)
 
@@ -126,7 +96,6 @@ def train(args):
         save_dir = MODEL_PATH_LOCAL + f"{dataset}_{model_type}_{'' if use_SAM == True else 'no'}_SAM/"
         os.makedirs(save_dir, exist_ok=True)
 
-        artifact = wandb.Artifact("model_checkpoints", type="model")
         print("Successfully initialized W&B run!")
 
         # --------------------------------------------------------------------
@@ -134,6 +103,8 @@ def train(args):
         # --------------------------------------------------------------------
 
         # Model
+        ViT_model = args.ViT_model
+        NLP_model = args.NLP_model
         if model_type == "ResNet18":
             model = torch_resnet18(num_classes=num_classes)
             model = model.to(device)
@@ -148,6 +119,10 @@ def train(args):
             raise Exception("Requested model doesn't exist! Has to be one of 'ResNet18', 'ViT', 'BERT', 'ROBERTA'")
 
         # Optimizer
+        base_optimizer = args.base_optimizer
+        learning_rate = args.learning_rate
+        weight_decay = args.weight_decay
+        momentum = args.momentum
         if base_optimizer == "SGD":
             base_opt = optim.SGD(model.parameters(), lr=learning_rate, weight_decay=weight_decay, momentum=momentum)
         elif base_optimizer == "AdamW":
@@ -162,13 +137,12 @@ def train(args):
         if use_SAM:
             print("Using SAM optimizer!")
             if adaptive:
-                print("--------------------------------------------------------------------------------")
-                print("--------------------------------------------------------------------------------")
-                print("----------------------Using Adaptive SAM optimizer!-----------------------------")
-                print("--------------------------------------------------------------------------------")
-                print("--------------------------------------------------------------------------------")
+                print("--------------------------------------------------------------------------")
+                print("-------------------Using Adaptive SAM optimizer!--------------------------")
+                print("--------------------------------------------------------------------------")
 
             # Set up arguments for both SAM and the base optimizer
+            rho = args.rho
             optimizer_args = {
                 'params': model.parameters(),
                 'base_optimizer': type(base_opt),
@@ -185,6 +159,8 @@ def train(args):
             opt = SAM(**optimizer_args)
 
             # Create the learning rate scheduler for SAM
+            lr_scheduler = args.lr_scheduler
+            epochs = args.epochs
             if lr_scheduler == "cosine":
                 scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt.base_optimizer, T_max=epochs)
             elif lr_scheduler == "linear":
@@ -224,6 +200,8 @@ def train(args):
             save_dir,
             f"model_{model_type}_seed{seed}_adaptive{adaptive}_SAM{use_SAM}_best.pth"
         )
+        batch_size = args.batch_size
+        seeds_per_job = args.seeds_per_job
         print("Initialized model, optimizer and loss function!")
         print("----- Start training loop -----")
         print("Printing all values: ", model_type, NLP_model, base_optimizer, learning_rate, weight_decay,
@@ -266,8 +244,6 @@ def train(args):
 
             # Validation loop
             val_accuracy, val_loss = evaluate_model_lang(model, val_loader, device, criterion, nlp)
-            wandb.log({"epoch": epoch, "val_accuracy": val_accuracy,
-                       "val_loss": val_loss, "lr": scheduler.get_last_lr()[0]})
 
             # Save and track the best model
             if val_loss < best_val_loss:
@@ -301,10 +277,6 @@ def train(args):
         # Store model after last epoch
         if store_last_ckpt:
             torch.save(model.state_dict(), last_epoch_checkpoint_path)
-
-        artifact.add_file(final_checkpoint_path)
-        wandb.log_artifact(artifact)
-        run.finish()
 
 
 def forward_and_loss_short(model, x, y, criterion, nlp):

@@ -1,6 +1,7 @@
+from xml.parsers.expat import model
+
 import torch
 import os
-import wandb
 from tqdm import tqdm
 import numpy as np
 import torch.nn as nn
@@ -24,37 +25,18 @@ def model_path(args, save_dir, epoch, val_loss, model_name):
     )
 
 
+def packed_logic(model):
+    packed = "ResNet_packed" in [type(m).__name__ for _, m in model.named_modules()]
+    if packed:
+        num_estimators = model.module.num_estimators if hasattr(model, "module") else model.num_estimators
+    else:
+        num_estimators = 1
+    return packed, num_estimators
+
+
 def save_model(model, path, args):
     state = model.module.state_dict() if hasattr(model, "module") else model.state_dict()
     torch.save(state, path)
-
-
-def init_wandb(args, model_name):
-    wandb.login()
-    project = f"LA_SAM_{args.dataset}_{args.model}_SAM{args.SAM}_adaptive{args.adaptive}"
-    run = wandb.init(project=project, name=model_name, config={
-        "base_optimizer": args.base_optimizer,
-        "rho": args.rho,
-        "adaptive": args.adaptive,
-        "lr": args.learning_rate,
-        "lr_scheduler": args.lr_scheduler,
-        "batch_size": args.batch_size,
-        "dropout": args.dropout,
-        "weight_decay": args.weight_decay,
-        "seed": args.seed,
-        "SAM": args.SAM,
-        "momentum": args.momentum,
-        "epochs": args.epochs,
-        "dataset": args.dataset,
-        "model": args.model,
-        "sgld_noise_factor": args.sgld_noise_factor,
-        "burn_in_epochs": args.burn_in_epochs,
-        "sgld_sample_interval": args.sgld_sample_interval,
-    })
-
-    artifact = wandb.Artifact("model_checkpoints", type="model")
-
-    return run, artifact
 
 
 def create_model_name(args):
@@ -64,51 +46,17 @@ def create_model_name(args):
     return model_name
 
 
-def init_dataloaders(dm, args):
-    if args.distributed:
-        train_dataset = dm.train_dataloader().dataset
-        val_dataset = dm.val_dataloader().dataset
-
-        train_sampler = DistributedSampler(train_dataset, shuffle=True)
-        val_sampler = DistributedSampler(val_dataset, shuffle=False)
-
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset,
-            batch_size=args.batch_size,
-            sampler=train_sampler,
-            num_workers=args.num_workers,
-            pin_memory=False
-        )
-
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset,
-            batch_size=args.batch_size,
-            sampler=val_sampler,
-            num_workers=args.num_workers,
-            pin_memory=False
-        )
-    else:
-        train_loader = dm.train_dataloader()
-        val_loader = dm.val_dataloader()
-        train_sampler = None
+def init_dataloaders(dm):
+    train_loader = dm.train_dataloader()
+    val_loader = dm.val_dataloader()
+    train_sampler = None
 
     return train_loader, val_loader, train_sampler
 
 
 def train(args):
-    if args.distributed:
-        args.local_rank = int(os.environ['LOCAL_RANK'])
-        if not dist.is_initialized():
-            dist.init_process_group(backend='nccl')
-        torch.cuda.set_device(args.local_rank)
-        print(f"[local rank]: {args.local_rank}")
-        device = torch.device(f'cuda:{args.local_rank}')
-    else:
-        device = torch_device()
-
+    device = torch_device()
     print("[device]:", device)
-
-    os.environ['WANDB_INIT_TIMEOUT'] = '800'
 
     DATA_PATH = LOCAL_STORAGE + DATA_DIR
 
@@ -120,18 +68,13 @@ def train(args):
     dm.prepare_data()
     dm.setup("fit")
 
-    train_loader, val_loader, train_sampler = init_dataloaders(dm, args)
+    train_loader, val_loader, train_sampler = init_dataloaders(dm)
 
     print(f"[dataset]: {args.dataset}")
 
     model_name = create_model_name(args)
-    torch_seed = torch.Generator()
-    torch_seed.manual_seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
     np.random.seed(args.seed)
-
-    run, artifact = init_wandb(args, model_name)
 
     save_dir = MODEL_PATH_LOCAL + f"{args.dataset}_{args.model}_{'' if args.SAM else 'no'}_SAM/"
     os.makedirs(save_dir, exist_ok=True)
@@ -143,11 +86,7 @@ def train(args):
     best_val_loss = float("inf")
     best_epoch = 0
     best_checkpoint_path = os.path.join(save_dir, f"model_{args.model}_seed{args.seed}_best.pth")
-    packed = "ResNet_packed" in [type(m).__name__ for _, m in model.named_modules()]
-    if packed:
-        num_estimators = model.module.num_estimators if model.module else model.num_estimators
-    else:
-        num_estimators = 1
+    packed, num_estimators = packed_logic(model)
 
     using_sgld = isinstance(optimizer, SGLD)
     burn_in = args.burn_in_epochs if args.burn_in_epochs is not None else args.epochs // 2
@@ -215,7 +154,6 @@ def train(args):
             "val_loss": val_loss, "lr": scheduler.get_last_lr()[0],
             "sgld_samples_collected": len(sgld_samples),
         }
-        wandb.log(log_dict)
 
         if val_loss < best_val_loss:
             best_val_loss = val_loss
@@ -234,11 +172,6 @@ def train(args):
         last_epoch_checkpoint_path = model_path(args, save_dir, args.epochs, val_loss, model_name)
         save_model(model, last_epoch_checkpoint_path, args)
         print(f"[saving model]: {last_epoch_checkpoint_path}")
-
-        artifact.add_file(final_checkpoint_path)
-        wandb.log_artifact(artifact)
-
-    run.finish()
 
 
 if __name__ == "__main__":

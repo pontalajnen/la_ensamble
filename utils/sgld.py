@@ -4,9 +4,6 @@ import torch
 class SGLD(torch.optim.Optimizer):
     """Stochastic Gradient Langevin Dynamics (Welling & Teh, 2011).
 
-    Update rule per step:
-        θ ← θ − lr * (∇loss + weight_decay * θ) + N(0, 2 * lr * noise_factor)
-
     During burn-in call step(add_noise=False) to do standard SGD.
     After burn-in call step(add_noise=True) and periodically snapshot the model.
     """

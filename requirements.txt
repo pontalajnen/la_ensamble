@@ -4,7 +4,6 @@ torchaudio
 numpy
 matplotlib
 tqdm
-wandb
 ood-metrics
 laplace-torch
 torch-uncertainty
