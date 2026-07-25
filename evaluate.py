@@ -46,6 +46,10 @@ def eval_sgld_ensemble(args, device, data_path, result_path):
     """Evaluate all model paths as a single SGLD posterior ensemble."""
     model_paths = open(ROOT + "/eval_path_files/" + args.model_path_file, "r").read().splitlines()
     model_paths = [p.strip() for p in model_paths if p.strip()]
+    if args.max_sgld_samples and len(model_paths) > args.max_sgld_samples:
+        indices = [round(i * (len(model_paths) - 1) / (args.max_sgld_samples - 1))
+                   for i in range(args.max_sgld_samples)]
+        model_paths = [model_paths[i] for i in indices]
 
     if args.dataset in ("cifar10", "cifar100", "mnist", "imagenet"):
         _, dm, num_classes, train_loader, val_loader, test_loader, shift_loader, ood_loader = load_vision_dataset(
@@ -165,7 +169,10 @@ def eval(args):
         try:
             model_name = model_path.split("model_name=")[1].replace(".ckpt", "")
         except IndexError:
-            model_name = model_path.split("mn=")[1].split("-")[0]
+            try:
+                model_name = model_path.split("mn=")[1].split("-")[0]
+            except IndexError:
+                model_name = os.path.splitext(os.path.basename(model_path))[0]
 
         if model_name not in results.keys():
             ood_done = in_done = False

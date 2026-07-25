@@ -85,7 +85,7 @@ def train(args):
     criterion = nn.CrossEntropyLoss()
     best_val_loss = float("inf")
     best_epoch = 0
-    best_checkpoint_path = os.path.join(save_dir, f"model_{args.model}_seed{args.seed}_best.pth")
+    best_checkpoint_path = os.path.join(save_dir, f"model_{model_name}_seed{args.seed}_best.pth")
     packed, num_estimators = packed_logic(model)
 
     using_sgld = isinstance(optimizer, SGLD)
@@ -100,6 +100,10 @@ def train(args):
         model.train()
 
         in_sampling_phase = using_sgld and epoch >= burn_in
+
+        if in_sampling_phase and args.sgld_sampling_lr is not None:
+            for g in optimizer.param_groups:
+                g['lr'] = args.sgld_sampling_lr
 
         for x, y in train_loader:
             x, y = x.to(device), y.to(device)

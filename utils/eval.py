@@ -39,7 +39,7 @@ def load_model(args, path, device, num_classes):
         else:
             model = ResNet20_FRN(num_classes=num_classes)
     elif name == 'resnet20_ensemble':
-        model = EnsembleModel(model=ResNet20_FRN, num_models=5, num_classes=num_classes)
+        model = EnsembleModel(model=ResNet20_FRN, num_models=4, num_classes=num_classes)
     elif name == 'resnet20_packed':
         model = ResNet20_FRN_packed(num_classes=num_classes)
     elif name == 'resnet18_ensemble':

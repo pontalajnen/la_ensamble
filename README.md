@@ -204,3 +204,8 @@ python evaluate.py \
   --dataset cifar10 \
   --sgld_ensemble \
   --save_file_name results_sgld.json
+
+cosign learning rate -> 0
+lr = 0.5
+1024
+lr warmup (5 epochs)

@@ -44,6 +44,8 @@ def eval_args():
 
     parser.add_argument("--sgld_ensemble", action=BooleanOptionalAction, default=False,
                         help="Treat all model paths as SGLD samples and evaluate as one ensemble.")
+    parser.add_argument("--max_sgld_samples", type=int, default=None,
+                        help="Subsample SGLD posterior to at most this many evenly-spaced samples.")
 
     parser.add_argument("--plot", action=BooleanOptionalAction, default=False)
 
@@ -83,6 +85,8 @@ def train_args():
     parser.add_argument("--learning_rate", default=0.1, type=float)
     parser.add_argument("--lr_scheduler", type=str, default="cosine",
                         help="Learning rate scheduler.")
+    parser.add_argument("--warmup_epochs", type=int, default=0,
+                        help="Linear warmup from near-zero to --learning_rate over this many epochs.")
     parser.add_argument("--base_optimizer", type=str, default="SGD",
                         help="Base optimizer.")
     parser.add_argument("--momentum", default=0.9, type=float,
@@ -118,6 +122,9 @@ def train_args():
                         help="Scales the Langevin noise: std = sqrt(2 * lr * noise_factor).")
     parser.add_argument("--burn_in_epochs", default=None, type=int,
                         help="Epochs before collecting posterior samples (default: half of --epochs).")
+    parser.add_argument("--sgld_sampling_lr", default=None, type=float,
+                        help="LR locked in once sampling starts. Overrides the scheduler. "
+                             "Should be much smaller than the burn-in LR (e.g. 1e-4).")
     parser.add_argument("--sgld_sample_interval", default=1, type=int,
                         help="Collect one sample every N epochs after burn-in.")
     parser.add_argument("--num_sgld_samples", default=20, type=int,

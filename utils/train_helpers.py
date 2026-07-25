@@ -106,12 +106,23 @@ def init_optimizer(args, model):
     else:
         raise Exception("Requested optimizer does not exist! Optimizer has to be one of 'SGD', 'AdamW', 'SGLD'")
 
+    def make_scheduler(opt, total_epochs):
+        cosine = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=total_epochs - args.warmup_epochs)
+        if args.warmup_epochs > 0:
+            warmup = torch.optim.lr_scheduler.LinearLR(
+                opt, start_factor=1e-3, end_factor=1.0, total_iters=args.warmup_epochs
+            )
+            return torch.optim.lr_scheduler.SequentialLR(
+                opt, schedulers=[warmup, cosine], milestones=[args.warmup_epochs]
+            )
+        return cosine
+
     # Determine the base optimizer and SAM optimizer setup
     if args.base_optimizer == "SGLD":
         print("[optimizer]: using SGLD")
         opt = base_optimizer
         if args.lr_scheduler == "cosine":
-            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, args.epochs)
+            scheduler = make_scheduler(opt, args.epochs)
     elif args.SAM:
         print("[optimizer]: using SAM")
         if args.adaptive:

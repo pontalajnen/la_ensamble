@@ -1,0 +1,1 @@
+/Users/pontushedman/la_ensemble/experiment_results/cifar10_resnet20_no_SAM/mn=resnet20_cifar10_SGD-epoch=178-val_loss=0.311-rho=0.05-adaptive=False.pth
