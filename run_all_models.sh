@@ -31,11 +31,11 @@ run() {
     local save_dir=$3
     shift 3
     echo ""
-    echo "=========================================="
-    echo "  Running: $name"
-    echo "=========================================="
+    echo "======================================"
+    echo "[running]: $name"
+    echo "======================================"
     if already_trained "$save_dir" "$model_name"; then
-        echo "  [skip]: checkpoint already exists, skipping."
+        echo "[skip]: checkpoint already exists"
         return
     fi
     python train.py $BASE_ARGS "$@"
@@ -48,9 +48,13 @@ run "Normal (SGD)" "${MODEL}_${DATASET}_SGD"          "$NO_SAM_DIR"
 run "Ensemble"     "${MODEL}_${DATASET}_SGD_ensemble"  "$NO_SAM_DIR" --ensemble
 run "Packed"       "${MODEL}_${DATASET}_SGD_packed"    "$NO_SAM_DIR" --packed
 run "SAM"          "${MODEL}_${DATASET}_SGD"           "$SAM_DIR"    --SAM
-run "SGLD"         "${MODEL}_${DATASET}_SGLD"          "$NO_SAM_DIR" --base_optimizer SGLD \
-    --learning_rate 0.5 --warmup_epochs 5 --epochs 80 --batch_size 1024 \
+run "SGLD+SAM"     "${MODEL}_${DATASET}_SGLD_SAM"      "$SAM_DIR"    --base_optimizer SGLD --SAM \
+    --learning_rate 0.5 --warmup_epochs 5 --epochs 200 --batch_size 1024 \
     --sgld_sampling_lr 1e-4 --sgld_noise_factor 0.01
+run "SGLD"         "${MODEL}_${DATASET}_SGLD"          "$NO_SAM_DIR" --base_optimizer SGLD \
+    --learning_rate 0.411407 --warmup_epochs 4 --epochs 200 --batch_size 1024 \
+    --sgld_sampling_lr 1.15179e-05 --sgld_noise_factor 0.000888362 \
+    --burn_in_epochs 40
 
 echo ""
 echo "All models finished."

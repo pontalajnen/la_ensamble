@@ -1,4 +1,4 @@
-python3 evaluate.py \
+python evaluate.py \
     --save_file_name test.json \
     --model_path_file test.txt \
     --model_type resnet20_packed \

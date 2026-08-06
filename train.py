@@ -41,6 +41,8 @@ def save_model(model, path, args):
 
 def create_model_name(args):
     model_name = args.model + "_" + args.dataset + "_" + args.base_optimizer
+    if args.base_optimizer == "SGLD" and args.SAM:
+        model_name += "_SAM"
     model_name += "_ensemble" if args.ensemble else ""
     model_name += "_packed" if args.packed else ""
     return model_name
@@ -108,7 +110,28 @@ def train(args):
         for x, y in train_loader:
             x, y = x.to(device), y.to(device)
             y = y.repeat(num_estimators) if packed else y
-            if args.SAM:
+            if using_sgld and args.SAM:
+                # SAM perturbation + SGLD noisy update
+                enable_running_stats(model)
+                loss = criterion(model(x), y)
+                loss.backward()
+                grad_norm = sum(p.grad.norm() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
+                perturbations = {}
+                for name, p in model.named_parameters():
+                    if p.grad is not None:
+                        eps = p.grad * (args.rho / (grad_norm + 1e-12))
+                        perturbations[name] = eps
+                        p.data.add_(eps)
+                optimizer.zero_grad()
+                disable_running_stats(model)
+                loss = criterion(model(x), y)
+                loss.backward()
+                for name, p in model.named_parameters():
+                    if name in perturbations:
+                        p.data.sub_(perturbations[name])
+                optimizer.step(add_noise=in_sampling_phase)
+                optimizer.zero_grad()
+            elif args.SAM:
                 enable_running_stats(model)
                 loss = sum([criterion(pred, y) for pred in model(x)]) if args.ensemble else criterion(model(x), y)
                 loss.mean().backward()
